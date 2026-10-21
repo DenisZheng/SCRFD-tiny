@@ -1,5 +1,7 @@
 Tiny version of [SCRFD](https://arxiv.org/abs/2105.04714) Face and 5 Point Landmark Detection implementation using PyTorch
 
+**English** | [简体中文](README.zh-CN.md)
+
 ### Installation
 
 ```
