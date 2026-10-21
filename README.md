@@ -12,6 +12,10 @@ pip install tqdm
 pip install thop
 ```
 
+### Docker training
+
+A full Docker-based workflow (image build and acceptance, RetinaFace-WIDER data preparation, 320 finetuning, evaluation, fixed-shape export for ESP-PPQ) is documented in the [Docker training manual](SCRFD-tiny-Docker%E8%AE%AD%E7%BB%83%E6%B5%81%E7%A8%8B.md) (Chinese), with the image defined by [Dockerfile.scrfd-tiny](Dockerfile.scrfd-tiny).
+
 ### Train
 
 * Dataset root is set with `--data-dir` (default `../Dataset/WIDERFace`); checkpoints and `step.csv` go to `--save-dir` (default `./weights`) - point it elsewhere to keep the bundled baseline untouched. Finetune from a checkpoint with `--weights <ckpt.pt>`. Note the defaults are a from-scratch recipe (`--epochs 1200`, `max_lr 0.01` in `utils/args.yaml`): for finetuning use far fewer epochs and consider lowering `max_lr`
