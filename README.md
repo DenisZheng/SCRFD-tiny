@@ -14,12 +14,13 @@ pip install thop
 
 ### Train
 
-* Dataset root is set with `--data-dir` (default `../Dataset/WIDERFace`); checkpoints and `step.csv` go to `--save-dir` (default `./weights`) - point it elsewhere to keep the bundled baseline untouched. Finetune from a checkpoint with `--weights <ckpt.pt>`
+* Dataset root is set with `--data-dir` (default `../Dataset/WIDERFace`); checkpoints and `step.csv` go to `--save-dir` (default `./weights`) - point it elsewhere to keep the bundled baseline untouched. Finetune from a checkpoint with `--weights <ckpt.pt>`. Note the defaults are a from-scratch recipe (`--epochs 1200`, `max_lr 0.01` in `utils/args.yaml`): for finetuning use far fewer epochs and consider lowering `max_lr`
 * Run `bash main.sh $ --train` for training, `$` is number of GPUs
 
 ### Test
 
 * Run `python main.py --test` for testing (loads `best.pt` from `--save-dir`)
+* Run `python main.py --export` to export `best.pt` from `--save-dir` as fixed-shape `[1, 3, S, S]` TorchScript + ONNX with no dynamic axes, for ESP-PPQ (S = `--input-size`)
 
 ### Results
 

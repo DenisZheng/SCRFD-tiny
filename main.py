@@ -228,7 +228,8 @@ def test(args, params, model=None):
     # Compute metrics
     metrics = [torch.cat(x, dim=0).cpu().numpy() for x in zip(*metrics)]  # to numpy
     if len(metrics) and metrics[0].any():
-        tp, fp, m_pre, m_rec, f1, map50, mean_ap = util.compute_ap(*metrics, plot=plot, names=params["names"])
+        tp, fp, m_pre, m_rec, f1, map50, mean_ap = util.compute_ap(*metrics, plot=plot, names=params["names"],
+                                                                  save_dir=args.save_dir)
     # Print results
     print(('%10s' + '%10.3g' * 4) % ('', m_pre, m_rec, f1, mean_ap))
     # Return results
@@ -376,6 +377,9 @@ def main():
     parser.add_argument('--train', action='store_true')
     parser.add_argument('--test', action='store_true')
     parser.add_argument('--demo', action='store_true')
+    parser.add_argument('--export', action='store_true',
+                        help='export best.pt from --save-dir as fixed-shape [1, 3, S, S] '
+                             'TorchScript + ONNX with no dynamic axes (for ESP-PPQ); S = --input-size')
 
     args = parser.parse_args()
 
@@ -414,6 +418,11 @@ def main():
         test(args, params)
     if args.demo:
         demo(args, params)
+    if args.export:
+        util.export(size=args.input_size,
+                    ckpt=os.path.join(args.save_dir, 'best.pt'),
+                    out_dir=args.save_dir,
+                    dynamic=False)
 
     # Clean
     if args.distributed:
