@@ -236,7 +236,8 @@ def compute_ap(tp, conf, output, target, plot=False, names=(), eps=1E-16):
 
 
 def disable_grad(filename):
-    x = torch.load(filename, map_location="cpu")
+    # weights_only=False: repo checkpoints pickle the whole module (see load_weight)
+    x = torch.load(filename, map_location="cpu", weights_only=False)
     for p in x['model'].parameters():
         p.requires_grad_ = False
     torch.save(x, f=filename)
@@ -249,7 +250,10 @@ def clip_gradients(model, max_norm=10):
 
 def load_weight(model, ckpt):
     dst = model.state_dict()
-    src = torch.load(ckpt)['model'].float().cpu()
+    # Checkpoints of this repo pickle the whole module, which PyTorch >= 2.6
+    # refuses under the weights_only=True default. Only load checkpoints you
+    # trust (your own training output).
+    src = torch.load(ckpt, weights_only=False)['model'].float().cpu()
 
     ckpt = {}
     for k, v in src.state_dict().items():

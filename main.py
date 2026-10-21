@@ -21,6 +21,13 @@ data_dir = '../Dataset/WIDERFace'
 def train(args, params):
     # Model
     model = nn.version_n(params)
+    if args.weights:
+        # Finetune from a checkpoint in this repo's save format
+        # ({'epoch': ..., 'model': <module>}); load_weight copies every
+        # parameter whose shape matches and skips the rest (strict=False).
+        model = util.load_weight(model, args.weights)
+        if args.local_rank == 0:
+            print(f'Finetune: loaded weights from {args.weights}')
     model.cuda()
 
     # Optimizer
@@ -168,7 +175,8 @@ def test(args, params, model=None):
     plot = False
     if not model:
         plot = True
-        model = torch.load(f='./weights/best.pt', map_location='cuda')
+        # weights_only=False: repo checkpoints pickle the whole module (see util.load_weight)
+        model = torch.load(f='./weights/best.pt', map_location='cuda', weights_only=False)
         model = model['model'].float()
 
     model.eval()
@@ -230,7 +238,7 @@ def test(args, params, model=None):
 def demo(args, params):
     import cv2
     import numpy
-    model = torch.load(f='./weights/best.pt', map_location='cuda')
+    model = torch.load(f='./weights/best.pt', map_location='cuda', weights_only=False)
     model = model['model'].float().fuse()
     model.half()
     model.eval()
@@ -341,7 +349,14 @@ def profile(args, params):
 
 def main():
     parser = ArgumentParser()
-    parser.add_argument('--input-size', default=640, type=int)
+    # Default input size is 320: this fork targets ESP-DL deployment, and
+    # utils/args.yaml anchor sizes are scaled for 320. For 640 training pass
+    # --input-size 640 and restore anchor sizes [16, 64, 256].
+    parser.add_argument('--input-size', default=320, type=int)
+    parser.add_argument('--data-dir', default='../Dataset/WIDERFace', type=str,
+                        help='dataset root with images/{train,val} and labels/{train,val}')
+    parser.add_argument('--weights', default='', type=str,
+                        help='checkpoint (.pt) to finetune from; empty = train from scratch')
     parser.add_argument('--batch-size', default=32, type=int)
     parser.add_argument('--local-rank', default=0, type=int)
     parser.add_argument('--local_rank', default=0, type=int)
@@ -351,6 +366,9 @@ def main():
     parser.add_argument('--demo', action='store_true')
 
     args = parser.parse_args()
+
+    global data_dir
+    data_dir = args.data_dir
 
     args.local_rank = int(os.getenv('LOCAL_RANK', 0))
     args.world_size = int(os.getenv('WORLD_SIZE', 1))

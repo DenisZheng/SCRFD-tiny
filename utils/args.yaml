@@ -10,6 +10,8 @@ face_anchors:
   strides: [ 8, 16, 32 ]
   ratios: [ 1.0 ]
   scales: [ 1, 2 ]
-  sizes: [ 16, 64, 256 ]
+  # sizes scaled for the default 320 input (ESP-DL target); the original
+  # 640 configuration used [ 16, 64, 256 ]
+  sizes: [ 8, 32, 128 ]
 names:
   0: Face
