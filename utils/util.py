@@ -1,5 +1,6 @@
 import copy
 import math
+import os
 import random
 
 import numpy
@@ -66,12 +67,13 @@ def compute_metric(output, target, iou_v):
     return torch.tensor(correct, dtype=torch.bool, device=output.device)
 
 
-def export():
-    model = torch.load(f='./weights/best.pt', map_location='cpu')
+def export(size=640, ckpt='./weights/best.pt', out_dir='./weights', dynamic=True):
+    # weights_only=False: repo checkpoints pickle the whole module (see load_weight)
+    model = torch.load(ckpt, map_location='cpu', weights_only=False)
     model = model['model'].float().fuse()
 
-    ts = torch.jit.trace(model, torch.randn((1, 3, 640, 640)), strict=False)
-    ts.save('./weights/best.model')
+    ts = torch.jit.trace(model, torch.randn((1, 3, size, size)), strict=False)
+    ts.save(os.path.join(out_dir, 'best.model'))
 
     # Define input and outputs names, which are required to properly define
     # dynamic axes
@@ -90,15 +92,24 @@ def export():
         3: '?'
     }
 
+    # ESP-DL / ESP-PPQ need a fixed batch of 1 and fixed H/W: callers pass
+    # dynamic=False there and the graph is exported with no dynamic axes
+    if not dynamic:
+        dynamic_axes = None
+
+    # dynamo=False: the dynamo exporter (default since torch 2.9) cannot
+    # solve this model's dynamic_axes shape constraints and aborts; the
+    # legacy exporter handles them and produces the same graph
     torch.onnx.export(model,
-                      torch.randn((1, 3, 640, 640)),
-                      './weights/last.onnx',
+                      torch.randn((1, 3, size, size)),
+                      os.path.join(out_dir, 'last.onnx'),
                       keep_initializers_as_inputs=False,
                       verbose=False,
                       input_names=input_names,
                       output_names=output_names,
                       dynamic_axes=dynamic_axes,
-                      opset_version=11)
+                      opset_version=11,
+                      dynamo=False)
 
 
 def smooth(y, f=0.1):
@@ -154,7 +165,8 @@ def plot_curve(px, py, names, save_dir, x_label="Confidence", y_label="Metric"):
     pyplot.close(figure)
 
 
-def compute_ap(tp, conf, output, target, plot=False, names=(), eps=1E-16):
+def compute_ap(tp, conf, output, target, plot=False, names=(), eps=1E-16,
+               save_dir='./weights'):
     """
     Compute the average precision, given the recall and precision curves.
     Source: https://github.com/rafaelpadilla/Object-Detection-Metrics.
@@ -209,7 +221,9 @@ def compute_ap(tp, conf, output, target, plot=False, names=(), eps=1E-16):
 
             # Integrate area under curve
             x = numpy.linspace(start=0, stop=1, num=101)  # 101-point interp (COCO)
-            ap[ci, j] = numpy.trapz(numpy.interp(x, m_rec, m_pre), x)  # integrate
+            # numpy.trapz was removed in numpy 2.0 (renamed trapezoid)
+            trapz = numpy.trapezoid if hasattr(numpy, 'trapezoid') else numpy.trapz
+            ap[ci, j] = trapz(numpy.interp(x, m_rec, m_pre), x)  # integrate
             if plot and j == 0:
                 py.append(numpy.interp(px, m_rec, m_pre))  # precision at mAP@0.5
 
@@ -218,10 +232,10 @@ def compute_ap(tp, conf, output, target, plot=False, names=(), eps=1E-16):
     if plot:
         names = dict(enumerate(names))  # to dict
         names = [v for k, v in names.items() if k in unique_classes]  # list: only classes that have data
-        plot_pr_curve(px, py, ap, names, save_dir="./weights/PR_curve.png")
-        plot_curve(px, f1, names, save_dir="./weights/F1_curve.png", y_label="F1")
-        plot_curve(px, p, names, save_dir="./weights/P_curve.png", y_label="Precision")
-        plot_curve(px, r, names, save_dir="./weights/R_curve.png", y_label="Recall")
+        plot_pr_curve(px, py, ap, names, save_dir=os.path.join(save_dir, "PR_curve.png"))
+        plot_curve(px, f1, names, save_dir=os.path.join(save_dir, "F1_curve.png"), y_label="F1")
+        plot_curve(px, p, names, save_dir=os.path.join(save_dir, "P_curve.png"), y_label="Precision")
+        plot_curve(px, r, names, save_dir=os.path.join(save_dir, "R_curve.png"), y_label="Recall")
     i = smooth(f1.mean(0), 0.1).argmax()  # max F1 index
     p, r, f1 = p[:, i], r[:, i], f1[:, i]
     tp = (r * nt).round()  # true positives
@@ -236,9 +250,10 @@ def compute_ap(tp, conf, output, target, plot=False, names=(), eps=1E-16):
 
 
 def disable_grad(filename):
-    x = torch.load(filename, map_location="cpu")
+    # weights_only=False: repo checkpoints pickle the whole module (see load_weight)
+    x = torch.load(filename, map_location="cpu", weights_only=False)
     for p in x['model'].parameters():
-        p.requires_grad_ = False
+        p.requires_grad_(False)
     torch.save(x, f=filename)
 
 
@@ -249,14 +264,29 @@ def clip_gradients(model, max_norm=10):
 
 def load_weight(model, ckpt):
     dst = model.state_dict()
-    src = torch.load(ckpt)['model'].float().cpu()
+    # Checkpoints of this repo pickle the whole module, which PyTorch >= 2.6
+    # refuses under the weights_only=True default. Only load checkpoints you
+    # trust (your own training output). map_location='cpu': a checkpoint
+    # saved mid-training on GPU must also load on CUDA-less machines (the
+    # weights are moved to .cpu() anyway).
+    src = torch.load(ckpt, map_location='cpu',
+                     weights_only=False)['model'].float().cpu()
 
-    ckpt = {}
+    matched, skipped = {}, []
     for k, v in src.state_dict().items():
         if k in dst and v.shape == dst[k].shape:
-            ckpt[k] = v
+            matched[k] = v
+        else:
+            skipped.append(k)
 
-    model.load_state_dict(state_dict=ckpt, strict=False)
+    print(f'load_weight: loaded {len(matched)}/{len(dst)} tensors from {ckpt} '
+          f'({len(skipped)} skipped)')
+    if not matched:
+        # A wrong file must fail loudly - silently training from scratch
+        # under a "finetune" command wastes a whole run
+        raise RuntimeError(f'load_weight: no tensor in {ckpt} matches the model')
+
+    model.load_state_dict(state_dict=matched, strict=False)
     return model
 
 
@@ -278,7 +308,7 @@ def set_params(model, decay):
             {'params': p2, 'weight_decay': decay}]
 
 
-def plot_lr(args, optimizer, scheduler, num_steps):
+def plot_lr(args, optimizer, scheduler, num_steps, save_dir='./weights'):
     from matplotlib import pyplot
 
     optimizer = copy.copy(optimizer)
@@ -296,7 +326,7 @@ def plot_lr(args, optimizer, scheduler, num_steps):
     pyplot.grid()
     pyplot.xlim(0, args.epochs * num_steps)
     pyplot.ylim(0)
-    pyplot.savefig('./weights/lr.png', dpi=200)
+    pyplot.savefig(os.path.join(save_dir, 'lr.png'), dpi=200)
     pyplot.close()
 
 

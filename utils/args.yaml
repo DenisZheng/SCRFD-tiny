@@ -10,6 +10,8 @@ face_anchors:
   strides: [ 8, 16, 32 ]
   ratios: [ 1.0 ]
   scales: [ 1, 2 ]
+  # 640-input baseline sizes; main() scales them by input_size / 640, so
+  # the effective sizes at 320 are [ 8, 32, 128 ] - do not edit per size
   sizes: [ 16, 64, 256 ]
 names:
   0: Face
