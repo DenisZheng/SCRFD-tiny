@@ -333,7 +333,13 @@ def demo(args, params):
 
 
 def profile(args, params):
-    import thop
+    try:
+        import thop
+    except ImportError:
+        # Profiling is informational only - never let a missing optional
+        # dependency kill a training run before it starts
+        print('thop is not installed, skipping profile (pip install thop)')
+        return
     shape = (1, 3, args.input_size, args.input_size)
     model = nn.version_n(params).fuse()
 

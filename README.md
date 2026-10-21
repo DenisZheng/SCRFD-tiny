@@ -9,6 +9,7 @@ conda install python=3.11.11 pytorch torchvision torchaudio pytorch-cuda=12.1 -c
 pip install opencv-python
 pip install PyYAML
 pip install tqdm
+pip install thop
 ```
 
 ### Train
@@ -52,3 +53,7 @@ Upstream numbers at 640 input. This fork defaults to 320 (`--input-size`, anchor
 * https://github.com/jahongir7174/YUNet-eval
 * https://github.com/ShiqiYu/libfacedetection.train
 * https://github.com/deepinsight/insightface/tree/master/detection/scrfd
+
+### License
+
+MIT (see [LICENSE](LICENSE)). Note: the upstream repository (jahongir7174/SCRFD-tiny) ships no license file; this license covers this fork and its modifications.

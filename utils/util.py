@@ -66,11 +66,12 @@ def compute_metric(output, target, iou_v):
     return torch.tensor(correct, dtype=torch.bool, device=output.device)
 
 
-def export():
-    model = torch.load(f='./weights/best.pt', map_location='cpu')
+def export(size=640, ckpt='./weights/best.pt'):
+    # weights_only=False: repo checkpoints pickle the whole module (see load_weight)
+    model = torch.load(ckpt, map_location='cpu', weights_only=False)
     model = model['model'].float().fuse()
 
-    ts = torch.jit.trace(model, torch.randn((1, 3, 640, 640)), strict=False)
+    ts = torch.jit.trace(model, torch.randn((1, 3, size, size)), strict=False)
     ts.save('./weights/best.model')
 
     # Define input and outputs names, which are required to properly define
@@ -90,15 +91,19 @@ def export():
         3: '?'
     }
 
+    # dynamo=False: the dynamo exporter (default since torch 2.9) cannot
+    # solve this model's dynamic_axes shape constraints and aborts; the
+    # legacy exporter handles them and produces the same graph
     torch.onnx.export(model,
-                      torch.randn((1, 3, 640, 640)),
+                      torch.randn((1, 3, size, size)),
                       './weights/last.onnx',
                       keep_initializers_as_inputs=False,
                       verbose=False,
                       input_names=input_names,
                       output_names=output_names,
                       dynamic_axes=dynamic_axes,
-                      opset_version=11)
+                      opset_version=11,
+                      dynamo=False)
 
 
 def smooth(y, f=0.1):
