@@ -68,7 +68,7 @@ def train(args, params):
     amp_scale = torch.amp.GradScaler()
     criterion = util.ComputeLoss(args, params)
 
-    with open('weights/step.csv', 'w') as log:
+    with open(os.path.join(args.save_dir, 'step.csv'), 'w') as log:
         if args.local_rank == 0:
             logger = csv.DictWriter(log, fieldnames=['epoch',
                                                      'box', 'cls', 'kpt',
@@ -153,14 +153,14 @@ def train(args, params):
                         'model': copy.deepcopy(ema.ema)}
 
                 # Save last, best and delete
-                torch.save(save, f='./weights/last.pt')
+                torch.save(save, os.path.join(args.save_dir, 'last.pt'))
                 if best == last[1]:
-                    torch.save(save, f='./weights/best.pt')
+                    torch.save(save, os.path.join(args.save_dir, 'best.pt'))
                 del save
 
     if args.local_rank == 0:
-        util.disable_grad('./weights/best.pt')  # strip optimizers
-        util.disable_grad('./weights/last.pt')  # strip optimizers
+        util.disable_grad(os.path.join(args.save_dir, 'best.pt'))  # strip optimizers
+        util.disable_grad(os.path.join(args.save_dir, 'last.pt'))  # strip optimizers
 
 
 def test(args, params, model=None):
@@ -176,7 +176,8 @@ def test(args, params, model=None):
     if not model:
         plot = True
         # weights_only=False: repo checkpoints pickle the whole module (see util.load_weight)
-        model = torch.load(f='./weights/best.pt', map_location='cuda', weights_only=False)
+        model = torch.load(os.path.join(args.save_dir, 'best.pt'),
+                           map_location='cuda', weights_only=False)
         model = model['model'].float()
 
     model.eval()
@@ -238,7 +239,8 @@ def test(args, params, model=None):
 def demo(args, params):
     import cv2
     import numpy
-    model = torch.load(f='./weights/best.pt', map_location='cuda', weights_only=False)
+    model = torch.load(os.path.join(args.save_dir, 'best.pt'),
+                       map_location='cuda', weights_only=False)
     model = model['model'].float().fuse()
     model.half()
     model.eval()
@@ -350,13 +352,17 @@ def profile(args, params):
 def main():
     parser = ArgumentParser()
     # Default input size is 320: this fork targets ESP-DL deployment, and
-    # utils/args.yaml anchor sizes are scaled for 320. For 640 training pass
-    # --input-size 640 and restore anchor sizes [16, 64, 256].
+    # Anchor sizes in utils/args.yaml are the 640 baseline and are scaled
+    # automatically to --input-size in main().
     parser.add_argument('--input-size', default=320, type=int)
     parser.add_argument('--data-dir', default='../Dataset/WIDERFace', type=str,
                         help='dataset root with images/{train,val} and labels/{train,val}')
+    parser.add_argument('--save-dir', default='./weights', type=str,
+                        help='where step.csv / best.pt / last.pt are written; '
+                             'point it elsewhere to keep the bundled 640 baseline untouched')
     parser.add_argument('--weights', default='', type=str,
-                        help='checkpoint (.pt) to finetune from; empty = train from scratch')
+                        help='checkpoint (.pt) to finetune from; empty = train from scratch. '
+                             'Only load your own trusted files: loading unpickles Python objects')
     parser.add_argument('--batch-size', default=32, type=int)
     parser.add_argument('--local-rank', default=0, type=int)
     parser.add_argument('--local_rank', default=0, type=int)
@@ -379,11 +385,17 @@ def main():
         torch.distributed.init_process_group(backend='nccl', init_method='env://')
 
     if args.local_rank == 0:
-        if not os.path.exists('weights'):
-            os.makedirs('weights')
+        if not os.path.exists(args.save_dir):
+            os.makedirs(args.save_dir)
 
     with open('utils/args.yaml', errors='ignore') as f:
         params = yaml.safe_load(f)
+
+    # args.yaml anchor sizes are the 640-input baseline. Scale them to the
+    # actual input size so --input-size and the anchors can never drift
+    # apart silently (a mismatch only degrades ATSS assignment / AP).
+    params['face_anchors']['sizes'] = [s * args.input_size / 640
+                                       for s in params['face_anchors']['sizes']]
 
     util.setup_seed()
     util.setup_multi_processes()

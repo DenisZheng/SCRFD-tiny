@@ -252,15 +252,27 @@ def load_weight(model, ckpt):
     dst = model.state_dict()
     # Checkpoints of this repo pickle the whole module, which PyTorch >= 2.6
     # refuses under the weights_only=True default. Only load checkpoints you
-    # trust (your own training output).
-    src = torch.load(ckpt, weights_only=False)['model'].float().cpu()
+    # trust (your own training output). map_location='cpu': a checkpoint
+    # saved mid-training on GPU must also load on CUDA-less machines (the
+    # weights are moved to .cpu() anyway).
+    src = torch.load(ckpt, map_location='cpu',
+                     weights_only=False)['model'].float().cpu()
 
-    ckpt = {}
+    matched, skipped = {}, []
     for k, v in src.state_dict().items():
         if k in dst and v.shape == dst[k].shape:
-            ckpt[k] = v
+            matched[k] = v
+        else:
+            skipped.append(k)
 
-    model.load_state_dict(state_dict=ckpt, strict=False)
+    print(f'load_weight: loaded {len(matched)}/{len(dst)} tensors from {ckpt} '
+          f'({len(skipped)} skipped)')
+    if not matched:
+        # A wrong file must fail loudly - silently training from scratch
+        # under a "finetune" command wastes a whole run
+        raise RuntimeError(f'load_weight: no tensor in {ckpt} matches the model')
+
+    model.load_state_dict(state_dict=matched, strict=False)
     return model
 
 

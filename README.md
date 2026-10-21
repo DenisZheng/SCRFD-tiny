@@ -13,15 +13,16 @@ pip install tqdm
 
 ### Train
 
-* Configure your dataset path in `main.py` for training
+* Dataset root is set with `--data-dir` (default `../Dataset/WIDERFace`); checkpoints and `step.csv` go to `--save-dir` (default `./weights`) - point it elsewhere to keep the bundled baseline untouched. Finetune from a checkpoint with `--weights <ckpt.pt>`
 * Run `bash main.sh $ --train` for training, `$` is number of GPUs
 
 ### Test
 
-* Configure your dataset path in `main.py` for testing
-* Run `python main.py --test` for testing
+* Run `python main.py --test` for testing (loads `best.pt` from `--save-dir`)
 
 ### Results
+
+Upstream numbers at 640 input. This fork defaults to 320 (`--input-size`, anchor sizes auto-scale); expect lower AP at 320, especially on small faces - compare against your own 320 baseline, not this table.
 
 | Model              | AP-easy | AP-medium | AP-hard | Params (M) | Params Ratio | FLOPS (M) | CPU ONNX Latency (ms) | 
 |--------------------|---------|-----------|---------|------------|--------------|-----------|-----------------------|
