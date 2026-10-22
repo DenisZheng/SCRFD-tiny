@@ -1,0 +1,13 @@
+# Git 忽略
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# 数据集：RetinaFace 官方标注包（retinaface_gt_v1.1），
+# 仅用于本地/远端构建训练集，不入库。SHA-256 见文档第 19.3 节。
+retinaface_gt_v1.1/
+
+# 训练产物
+runs/
+*.log

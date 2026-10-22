@@ -1,10 +1,11 @@
 # SCRFD-tiny（DenisZheng fork）Docker 训练、评估与导出手册
 
 **适用模型：** `DenisZheng/SCRFD-tiny`（fork 自 `jahongir7174/SCRFD-tiny`），单阶段人脸检测 + 5 点关键点，目标部署 ESP-DL（ESP32-S3/P4）
-**训练镜像：** `scrfd-tiny:torch2.5.1-cu124`（见随附 `Dockerfile.scrfd-tiny`）
+**可选训练机：** GTX 1060 6 GB（`192.168.100.41` / `root`）与 RTX 4080 16 GB（`10.2.12.200` / `mnt-xm`）均保留；2026-10-21 本次任务选择 GTX 1060，连接后核实
+**候选训练镜像：** `scrfd-tiny:torch2.5.1-cu124`（见随附 `Dockerfile.scrfd-tiny`；**2026-10-15 已在 GTX 1060 实机验收通过**，见第 19 节）
 **正式工作目录：** 宿主机 `$HOME/scrfd-tiny-lab/runs/<run-name>`（容器内 `/runs/<run-name>`，经 `--save-dir` 指定）
-**文档状态：** fork 改造已合并主线；CPU 侧基线已实测（见第 2 节）；**GPU 训练、正式评估与量化精度尚未实测**，文中凡属建议起点均已标注，不得当作实测结论引用
-**最后更新：** 2026-10-21
+**文档状态：** fork 改造已合并主线；CPU 侧基线有既有记录（见第 2 节）；**GPU 实机训练已于 2026-10-15 在 GTX 1060 启动并稳定运行**，实测数据见第 19 节。**第 19 节同时记录了一次因数据标签权重 bug 作废的 run（`ft320-20261014`）及修复后的正式 run（`ft320-20261015`）**，含官方 `retinaface_gt_v1.1` 标注格式验证与关键点缺失比例的完整证据链。正式评估与量化精度仍未实测。当前目录未交付 ESP 适配包，其来源与版本待补。
+**最后更新：** 2026-10-15（第 19 节为 GTX 1060 实机训练记录）
 
 本文只描述这条 Docker 主线。仓库 README 里的 Conda 流程（`conda create -n PyTorch python=3.11.11` 等）不再使用；不要在训练容器里临时改依赖后继续把它当作原始训练环境。ESP-PPQ 量化与上板对版属于部署阶段，见第 13–15 节的衔接说明，不在训练容器内完成最终验收。
 
@@ -31,16 +32,19 @@ sudo systemctl restart docker
 sudo docker run --rm --gpus all ubuntu nvidia-smi
 ```
 
-最后一条命令必须能在容器内显示 GPU、驱动版本和显存信息，之后才能构建训练镜像。本手册的基础镜像含 CUDA 12.4 runtime，**宿主机驱动需 ≥ 550**；驱动更旧时改用 CUDA 12.1 基础镜像（`pytorch/pytorch:2.5.1-cuda12.1-cudnn9-devel`）并同步修改 Dockerfile 与镜像名，不要混用。日常命令若不使用 `sudo`，可按 Docker 官方 post-install 文档配置 `docker` 用户组；该用户组具有接近 root 的宿主机权限，应限制成员范围并在重新登录后验证 `docker info`。
+最后一条命令必须能在容器内显示 GPU、驱动版本和显存信息，之后才能构建训练镜像。GTX 1060 的官方 Compute Capability 为 6.1；Docker 不绑定显卡型号，实际可用性取决于宿主驱动、容器 CUDA/库和 PyTorch 构建支持，并须由第 5 节实算确认。本手册保留 CUDA 12.4 候选环境，先记录实际驱动，按 [NVIDIA CUDA 兼容说明](https://docs.nvidia.com/deploy/cuda-compatibility/minor-version-compatibility.html)核对；不自动升级宿主驱动或切换基础镜像。日常命令若不使用 `sudo`，可按 Docker 官方 post-install 文档配置 `docker` 用户组，并在重新登录后验证 `docker info`。
 
-## 1. 已确认基线
+## 1. 用户指定主机与候选环境
 
 ### 1.1 主机与软件栈
 
+本工作流保留两台可选训练机；2026-10-21 本次选择 GTX 1060，不改变 RTX 4080 的长期登记。下表区分主机登记与候选镜像配置，每次选机后分别核实环境并保存结果。
+
 | 项目 | 当前值 |
 | --- | --- |
-| GPU | NVIDIA RTX 4080 16 GB，Compute Capability 8.9 |
-| CPU / 内存 | Intel i5-13600K / 16 GB |
+| GTX 1060 主机 | NVIDIA GTX 1060 6 GB，Pascal / Compute Capability 6.1；CPU 待核实，32 GB RAM 为既有记录 |
+| RTX 4080 主机 | NVIDIA RTX 4080 16 GB，Compute Capability 8.9；Intel i5-13600K / 16 GB RAM 为既有记录 |
+| 本次选机 | 2026-10-21 使用 GTX 1060；两台主机的实际配置、负载和验收结果分别记录 |
 | 基础镜像 | `pytorch/pytorch:2.5.1-cuda12.4-cudnn9-devel` |
 | Python | `3.11`（随基础镜像） |
 | PyTorch | `2.5.1+cu124` |
@@ -75,7 +79,7 @@ sudo docker run --rm --gpus all ubuntu nvidia-smi
 | `$HOME/scrfd-tiny-lab/SCRFD-tiny` | `/workspace/scrfd-tiny` | fork 源码（克隆） |
 | `$HOME/scrfd-tiny-lab/datasets` | `/datasets` | 数据：`WIDERFace/`（转换后）、`wider_raw/`（原始下载） |
 | `$HOME/scrfd-tiny-lab/runs` | `/runs` | 每次运行的 `--save-dir`（checkpoint、step.csv、曲线图、导出产物） |
-| `$HOME/scrfd-tiny-lab/scrfd-tiny-esp` | `/esp` | ESP 适配包（`prepare_wider.py`、`export_onnx_raw.py`、`quantize_espdl.py`、`decode_ref.py`），只读 |
+| `$HOME/scrfd-tiny-lab/scrfd-tiny-esp` | `/esp` | 外部 ESP 适配包，当前目录未交付；训练时只读。部署导出若写 `/esp/models`，需另用适配包副本的可写挂载，见第 14 节 |
 
 正式 checkpoint 在宿主机 `runs` 中持续保存，不依赖容器可写层。容器使用 `--rm` 退出不会删除宿主机产物。
 
@@ -108,7 +112,21 @@ git rev-parse HEAD        # 应为 d561bdf 或其后的主线提交
 test -f main.py && test -f utils/args.yaml && test -f weights/best.pt
 ```
 
-把 ESP 适配包（`scrfd-tiny-esp`，含转换与量化脚本）放到 `$HOME/scrfd-tiny-lab/scrfd-tiny-esp`。
+**外部依赖待补齐：** `scrfd-tiny-esp` 不在当前 checkout 内，来源仓库/归档、版本和哈希尚未登记。需先取得适配包，记录来源、commit 或归档 SHA-256，以及 `prepare_wider.py`、`export_onnx_raw.py`、`quantize_espdl.py`、`decode_ref.py` 的哈希，再放到 `$HOME/scrfd-tiny-lab/scrfd-tiny-esp`。仅克隆 SCRFD-tiny 不会得到这组脚本。
+
+未补齐来源与文件前，先停在数据转换和 ESP 导出/量化步骤；已有正确格式数据时，可独立验证训练镜像和仓库 `main.py`。文件到位后，先用各脚本 `--help` 核对本文接口，再执行相应步骤。以下检查只证明文件存在，来源和版本仍需单独登记：
+
+```bash
+adapter_root="$HOME/scrfd-tiny-lab/scrfd-tiny-esp"
+for adapter_script in prepare_wider.py export_onnx_raw.py quantize_espdl.py decode_ref.py; do
+  if [ ! -f "$adapter_root/$adapter_script" ]; then
+    printf '缺少 ESP 适配脚本：%s\n' "$adapter_root/$adapter_script" >&2
+    exit 1
+  fi
+done
+sha256sum "$adapter_root/prepare_wider.py" "$adapter_root/export_onnx_raw.py" \
+  "$adapter_root/quantize_espdl.py" "$adapter_root/decode_ref.py"
+```
 
 训练启动前记录源码状态，避免以后无法解释模型来自哪份代码：
 
@@ -131,6 +149,8 @@ git diff utils/args.yaml   # 输出保存到本次运行记录中
 
 ### 3.3 数据：RetinaFace 版 WIDER Face（带 5 点标注）
 
+> **⚠ 2026-10-15 实测修正：本节原有的「聚合 labelv2.txt 直接用」路径已被推翻。** 必须使用官方 `retinaface_gt_v1.1` 原始 `label.txt` 并转换为每图一个 txt；转换脚本、标注格式、关键点判据与实测统计见**第 19.3 节**。聚合 `labelv2.txt`（第三方整理版）虽内容相近，但框格式已改为 `x1y1x2y2`、且来源不可考，不作为本工作流数据来源。
+
 本仓库训练标签要求每脸 20 个值（框 + 5 点），必须使用带关键点的标注版（RetinaFace 作者标注的 `label.txt`，即 YuNet/libfacedetection.train 同源数据），原版 WIDER 官方标注没有关键点、不能直接用。
 
 下载（任选其一，链接为 2026-10-21 核实；失效时从 RetinaFace 仓库 README 更新）：
@@ -150,7 +170,7 @@ wider_raw/
   val/{images, label.txt}
 ```
 
-转换成本仓库的布局（`images/{train,val}` + `labels/{train,val}`，每图一个同名 txt）：
+适配包按 3.1 补齐、核对接口后，转换成本仓库布局（`images/{train,val}` + `labels/{train,val}`，每图一个同名 txt）。以下为待适配包版本确认的接口示例，尚未在当前 checkout 重现：
 
 ```bash
 cd "$HOME/scrfd-tiny-lab"
@@ -204,7 +224,7 @@ docker run --rm scrfd-tiny:torch2.5.1-cu124 pip freeze > "$HOME/scrfd-tiny-lab/r
 ### 5.1 Python、CUDA 与依赖导入
 
 ```bash
-docker run --rm --gpus '"device=0"' \
+docker run --rm -i --gpus '"device=0"' \
   --ipc=host \
   scrfd-tiny:torch2.5.1-cu124 \
   python3 - <<'PY'
@@ -213,10 +233,16 @@ print('torch:', torch.__version__)
 print('torch cuda build:', torch.version.cuda)
 print('cuda available:', torch.cuda.is_available())
 print('gpu:', torch.cuda.get_device_name(0))
+print('device capability:', torch.cuda.get_device_capability(0))
+print('compiled architectures:', torch.cuda.get_arch_list())
+print('cudnn:', torch.backends.cudnn.version())
 print('numpy:', __import__('numpy').__version__)
 
 assert torch.__version__.startswith('2.5.1')
 assert torch.cuda.is_available()
+assert torch.version.cuda == '12.4'
+assert torch.cuda.get_device_capability(0) in ((6, 1), (8, 9))
+print('PASS: registered GPU environment metadata')
 PY
 ```
 
@@ -225,7 +251,7 @@ PY
 只成功 import 不足以证明 CUDA 算子可用，再执行一次实际 GPU 运算，并跑仓库自身的加载冒烟（不需要数据集）：
 
 ```bash
-docker run --rm --gpus '"device=0"' \
+docker run --rm -i --gpus '"device=0"' \
   --ipc=host \
   -v "$HOME/scrfd-tiny-lab/SCRFD-tiny:/workspace/scrfd-tiny" \
   scrfd-tiny:torch2.5.1-cu124 \
@@ -238,8 +264,20 @@ import yaml
 
 x = torch.randn(256, 256, device='cuda')
 y = x @ x
+torch.cuda.synchronize()
 assert y.is_cuda and torch.isfinite(y).all()
 print('cuda matmul ok')
+
+conv = torch.nn.Conv2d(3, 8, 3, padding=1).cuda()
+conv_input = torch.randn(2, 3, 32, 32, device='cuda')
+conv_loss = conv(conv_input).square().mean()
+conv_loss.backward()
+torch.cuda.synchronize()
+assert torch.isfinite(conv_loss).item()
+assert conv.weight.grad is not None
+assert torch.isfinite(conv.weight.grad).all().item()
+assert conv.weight.grad.abs().sum().item() > 0
+print('cuda conv forward/backward ok')
 
 params = yaml.safe_load(open('/workspace/scrfd-tiny/utils/args.yaml'))
 params['face_anchors']['sizes'] = [s * 320 / 640 for s in params['face_anchors']['sizes']]
@@ -248,11 +286,12 @@ util.load_weight(model, '/workspace/scrfd-tiny/weights/best.pt')   # 必须打�
 model = model.cuda().eval()
 with torch.no_grad():
     out = model(torch.zeros(1, 3, 320, 320, device='cuda'))
-print('forward @320 on GPU ok')
+torch.cuda.synchronize()
+print('PASS: CUDA matmul, conv backward and model forward @320')
 PY
 ```
 
-`load_weight` 若打印的不是 228/228 或直接抛 `no tensor ... matches`，说明权重文件或代码版本不对，先停下，不要开始训练。两项都通过后，才进入数据与训练验证。
+`docker run -i` 为以上 heredoc 脚本保留 stdin，不能省略后把空输出当成功。先核对打印的主机与 GPU 是否匹配本次选机；代码覆盖两台登记 GPU，不代表可以擅自改选另一台。每步必须保存 PASS 输出和真实退出码；仅 `nvidia-smi`、import 或矩阵运算通过仍不足以证明 cuDNN 卷积和训练可用。`load_weight` 若不是 228/228 或抛 `no tensor ... matches`，先核对权重与源码；两项验收通过后再进入真实数据与训练探针。
 
 ## 6. 创建正式容器
 
@@ -280,7 +319,7 @@ docker run --rm -it \
   bash
 ```
 
-`--ipc=host` 必须保留：Docker 默认共享内存偏小，训练 DataLoader 开 8 个 worker 时可能触发 `Bus error`（宿主机内存只有 16 GB，同时留意宿主机内存占用，见第 9 节）。数据集以只读挂载，防止训练进程误写原始数据。
+`--ipc=host` 必须保留：Docker 默认共享内存偏小，训练 DataLoader 开 8 个 worker 时可能触发 `Bus error`。宿主机 RAM、Swap 和当前负载以实测为准，同时监控内存占用，见第 9 节。数据集以只读挂载，防止训练进程误写原始数据。
 
 容器内执行：
 
@@ -537,7 +576,9 @@ sha256sum /runs/ft320-YYYYMMDD/last.onnx
 
 ## 14. ESP-PPQ 量化衔接（部署阶段概要）
 
-在宿主机或同一镜像容器中，用 ESP 适配包的脚本完成（量化环境 esp-ppq 的安装不在本手册范围内，按适配包 README 执行）：
+本节和第 15 节的适配包步骤以前述 3.1 的来源、版本和接口核对为前提；当前 checkout 缺少该包，以下是历史接口示例，不能据此宣称部署已可复现。量化环境 esp-ppq 的版本与安装应按取得的适配包说明另行登记。
+
+下面的历史接口把 raw-head ONNX 放在 `/esp/models`，因此部署时该目录必须可写。训练章节的 `/esp:ro` 只读挂载不适用于这组导出命令：使用单独部署容器，将适配包副本读写挂载到 `/esp`，并保留 `/runs` 的 checkpoint 挂载。若取得的脚本支持指定输出到 `/runs`，应按其实际 `--help` 同步修改导出路径和后续 `--onnx`，本手册不预设尚未核实的输出参数。
 
 ```bash
 # 1) raw-head ONNX（以正式 best.pt 为输入，不要再用自带基线权重）
@@ -669,3 +710,214 @@ runs/image-pip-freeze.txt
 7. 进入 ESP-PPQ 正式校准量化（第 14 节）与上板对版；量化精度与板端延迟实测后，再下「平替 MSR+MNP」的结论。
 
 当前最直接的下一步是第 2、3 步：把数据下好转好、探针跑通，训练本身反而是最不该抢跑的一步。
+
+## 19. GTX 1060 实机训练记录（2026-10-15）
+
+本节是**实测证据**，与前面各节的「建议起点」区分使用。本节包含一次因数据标签 bug 作废的 run，以及修复后的正式 run。
+
+### 19.1 主机与环境（已验证）
+
+| 项目 | 实测值 |
+| --- | --- |
+| 主机名 | `aiserver-05`，Ubuntu 22.04.1 LTS，kernel 5.15.0-198-generic |
+| SSH | `root@192.168.100.41`（用户提供；`192.168.100.40` 为早期笔误，已全库更正） |
+| CPU / RAM | Intel i7-8700 @ 3.20 GHz，12 线程 / 15 GiB RAM / 4 GiB Swap |
+| GPU / 驱动 | NVIDIA GeForce GTX 1060 6GB，驱动 `580.178.04`，Compute Capability `(6, 1)` |
+| 磁盘 | `/` 232 G（训练前可用 101 G，训练中 88 G），`/data2` 916 G（84% 已用，手势数据，与本工作流无关） |
+| Docker | 23.0.1，NVIDIA Container Toolkit 1.20.0，容器内 `nvidia-smi -L` 可见 1060 |
+
+### 19.2 镜像验收（已验证）
+
+- 基础镜像 `pytorch/pytorch:2.5.1-cuda12.4-cudnn9-devel` digest `sha256:14611869895df612b7b07227d5925f30ec3cd6673bad58ce3d84ed107950e014`（13.3 GB）。**注意：该基础镜像本身缺 matplotlib/opencv/onnx 等，直接跑第 5.1 节会 `ModuleNotFoundError`，必须先构建第 4 节镜像。**
+- 候选镜像 `scrfd-tiny:torch2.5.1-cu124` ID `sha256:0dbfaac5c6b86329065ea3ab0e96faf1122492696030452871254828d2256fe0`（13.6 GB），Dockerfile SHA-256 `20e28c9dda8d99c51fdc2a4ce112082ca98d7dbd4569ec5937542e952ab48b5b`。
+- 容器内版本：Python `3.11.10`、PyTorch `2.5.1+cu124`、torchvision `0.20.1+cu124`、CUDA runtime `12.4.1`、cuDNN `90100`、NumPy `2.1.2`、OpenCV `5.0.0`、onnx `1.23.2`、onnxruntime `1.31.0`。`pip freeze` 145 行已存 `runs/image-pip-freeze.txt`。
+- **`get_arch_list()` = `['sm_50','sm_60','sm_70','sm_75','sm_80','sm_86','sm_90']`，不含 `sm_61`**。1060 靠 `sm_60` PTX/SASS 兼容运行，已由下列实算证实可用，但这是兼容路径而非原生编译，后续若换卡或升级镜像需重测。
+- 实算验收全部通过：CUDA matmul、cuDNN conv 前向/反向、6 层 conv+BN 网络 `8×3×320×320` 前向反向、`load_weight` 打印 `loaded 228/228 tensors (0 skipped)`、320 输入前向输出三组 `((1,2,40,40),(1,2,20,20),(1,2,10,10))`、`((1,8,...))`、`((1,20,...))` 均有限。模型参数量 `80.458K`、`112.787M` FLOPs @320。
+
+### 19.3 数据来源与标注格式（已验证）
+
+#### 19.3.1 两个数据版本
+
+服务器上有两份来源不同的标注，**必须区分**：
+
+| 版本 | 路径 | 性质 |
+| --- | --- | --- |
+| 官方原始包 | `retinaface_gt_v1.1/{train,val,test}/label.txt` | RetinaFace 作者发布，2026-10-15 由用户重新下载提供，**本工作流采用** |
+| 第三方整理版 | `/root/scrfd-lab/datasets/retinaface/*/labelv2.txt` | 旧的 SCRFD 500M-KPS 训练用，格式为聚合 `labelv2.txt`，来源不可考 |
+
+官方包 SHA-256（本机与服务器逐字节一致）：
+
+```
+9845b2a68e42dc015de6045d752f5337419c82c890fc92500e9e6390081515e6  train/label.txt  (17,147,541 B)
+4d42a89243b0f03135dcfbded8a1f81022ab919377b1a88011d6bdce13077c00  val/label.txt    (714,207 B)
+f6edc7c1303024134a16a9f542c6a60350aa60b1a1c55235fcb736ed04eb4c26  test/label.txt   (909,921 B)
+```
+
+#### 19.3.2 官方标注格式
+
+```
+train/label.txt  每行 20 字段: x1 y1 w h  (kx ky flag)*5  score
+val/label.txt    每行 4  字段: x1 y1 w h        （仅框，无关键点）
+test/label.txt   仅文件名，无任何标注
+```
+
+**关键点缺失的判据（易错点，必须严格照抄 SCRFD 官方实现）：**
+
+`insightface/detection/scrfd/mmdet/datasets/retinaface.py:52-59`：
+
+```python
+if (kps[li,:]==-1).all():      # 三元组 (x, y, flag) 全等于 -1 才算该点缺失
+    kps[li][2] = 0.0           # weight = 0，不参与 kpt loss
+else:
+    kps[li][2] = 1.0           # 其余情况一律 weight = 1.0
+```
+
+即：
+- **`flag` 列（取值 `-1/0/1`）是原始的 visibility 标记，不是 loss 权重，必须丢弃。**
+- 存活判据是**三元组全等于 `-1`**，不是 `flag > 0`。
+- 第 20 列 `score` 不被 SCRFD 使用，必须丢弃。
+- 框格式官方是 `x1 y1 w h`，`utils/dataset.py` 需要 `x1 y1 x2 y2`。
+
+#### 19.3.3 转换结果
+
+脚本 `tools/build_from_gt.py`（SHA-256 `1102a15c92fd7388e7b5cb710f42fcd1e7256d14a88502ec883b89e2deb44af5`），直接用官方 `label.txt` 构建，图片 hardlink 到扁平目录，不占额外磁盘：
+
+| | train | val |
+| --- | --- | --- |
+| 图片 | 12,876 | 3,222 |
+| 人脸 | 159,393 | 39,697 |
+| 完整 5 点 | 76,006（**47.7%**） | 0（**0%**） |
+| 完全无关键点 | 83,387（**52.3%**） | 39,697（100%） |
+
+丢弃项：官方包有 **31 个 `w=0` 或 `h=0` 的占位无效框**（如 `0_Parade_Parade_0_452` 的 `0 0 0 0`），另有 4 张图整图只含此类框，均已剔除并记录。
+
+缓存：`train.cache` 17 MB、`val.cache` 4.0 MB。容器内自检确认前 2000 张图抽样 `kpt weight=1` 占比 **47.7%**，与官方统计一致。
+
+#### 19.3.4 关于「52.3% 人脸没有关键点」——这是标注规范，不是数据损坏
+
+**已用官方原始包交叉验证，结论明确：**
+
+1. **官方包同样是 52.32%**（83,418 / 159,424），与第三方版 52.30% 几乎完全一致（差 0.02 个百分点）。
+2. **RetinaFace 论文（arXiv:1905.00641）Table 1** 把标注质量分 5 级，Level 5「distinguish by context」共 94,095 张脸**无法定位关键点**；Level 1–4 才有关键点。论文原文：*"we have annotated five facial landmarks on faces that **can be annotated**"*。合计 199,022 张脸中 Level 1–4 占 52.7%，与实测 47.7% 同量级。
+3. **尺寸单调性交叉验证**（最强证据）：若 `-1` 真表示「标不出来」，则脸越小越难标。实测完全符合：
+
+| 框宽区间 | 数量 | 无关键点占比 |
+| --- | --- | --- |
+| 0–8 px | 26,251 | **96.9%** |
+| 8–16 px | 53,482 | 73.6% |
+| 16–32 px | 42,285 | 35.5% |
+| 32–64 px | 23,220 | 13.1% |
+| 64–128 px | 9,418 | 4.8% |
+| 128 px+ | 4,766 | 1.9% |
+
+| | 数量 | 宽中位数 | 面积中位数 |
+| --- | --- | --- | --- |
+| 有关键点 | 76,006 | 28.0 px | 992 px² |
+| 无关键点 | 83,418 | **10.0 px** | **120 px²** |
+
+无关键点的脸中位数为 10 像素宽，面积仅为有关键点脸的 1/8。10×12 像素的人脸无法可靠标注眼睛/鼻尖/嘴角，这是标注规范而非缺陷。
+
+4. **无「部分缺失」**：0 张脸是「部分点缺失」，说明是**整脸粒度**决策（标不出就整脸跳过），符合人工标注逻辑。
+
+5. **`val` 只有框也是官方设计**：官方 `val/label.txt` 就是 4 字段。val 用于检测评估，不评估关键点。
+
+**残留不确定性（不掩盖）：** 实测无关键点比例 52.3% 比论文口述推算的 46.9~47.3% 高约 5 个百分点（约 8,563 张脸）。因本机无法访问 Dropbox 获取论文配套的原始压缩包做逐字节对比，该偏差来源**无法证实**；论文自身数字亦不完全自洽（Table 1 合计 199,022 与正文总数有出入）。此偏差不改变「约一半人脸按规范无关键点」这一结论。
+
+### 19.4 已作废 run：`ft320-20261014`（数据标签 bug）
+
+**保留作证据，禁止用于交付或评估。** 目录 `runs/ft320-20261014`，含 `INVALID-README.txt` 与 `step.csv.final`。
+
+- **Bug**：第一版转换脚本 `tools/prepare_wider_local.py` 把 `flag` 列（visibility 0/1）误当作关键点 loss 权重，导致 `flag=0` 的**有效**关键点被置为 `weight=0`。按官方判据，train 完整 5 点应占 47.7%，错误口径下只剩 13.7%，**关键点监督密度损失约 34%（以人脸计 3.5 倍差距）**。
+- **影响范围**：框与类别标签完全正确，故 `step.csv` 中的检测指标（mAP/mAP@50/Recall/Precision/F1）是该数据下的真实值，可作历史参考，但**不得与修复后的 run 混为同一来源**。
+- **运行区间**：2026-10-15 10:25 至 10:55，共 9 个 epoch 后停止。
+
+### 19.5 正式 run：`ft320-20261015`（已验证运行中）
+
+目录 `/root/scrfd-tiny-lab/runs/ft320-20261015`，`run-meta.txt` 记录完整溯源信息。
+
+| 项目 | 值 |
+| --- | --- |
+| 启动时间 | 2026-10-15 11:06 |
+| 镜像 ID | `sha256:0dbfaac5c6b86329065ea3ab0e96faf1122492696030452871254828d2256fe0` |
+| 源码 commit | `6f89f9aa9aca76f06ca3cacf7859bc63c99e1f38` |
+| 初始权重 | `weights/best.pt`，SHA-256 `8049d2b00c1ec7dc19cf56ae4b08bae704a0e95ff3343132ac776d7100c9fdc5` |
+| `args.yaml` | `max_lr: 0.001`，SHA-256 `f8fdbd4af54a00dbcc3e4abe670df1dd74916f41fe0f6f64f08e108211f6710f`；diff 存 `runs/args-yaml.diff`，原件备份 `runs/args.yaml.orig` |
+| 数据 | 官方 `retinaface_gt_v1.1` + WIDER 图片，train 12,876 图 / 159,393 脸 |
+| 构建脚本 | `tools/build_from_gt.py`，SHA-256 `1102a15c...` |
+
+训练命令：
+
+```bash
+python3 -u main.py --train \
+  --data-dir /datasets/WIDERFace \
+  --save-dir /runs/ft320-20261015 \
+  --weights weights/best.pt \
+  --input-size 320 --batch-size 32 --epochs 200
+```
+
+容器 `scrfd-tiny-train`，tmux 会话 `scrfd-tiny-ft320`，`--ipc=host` 已保留。
+
+**实测性能：**
+
+- **batch 32 不需 OOM 回退**：显存 1.7–2.0 GB / 6 GB（含缓存），GPU 利用率 28–95%，温度 63–65 °C，功耗 38–71 W
+- RAM 2.6 GiB / 15 GiB，Swap 285–303 MiB 基本无增长
+- **单 epoch 3.44 分钟**（403 step + val 评估；首轮含缓存构建约 5.5 分钟），200 epoch 约 **11 小时**，预计 2026-10-15 **22:30** 前后完成
+- 前 6 个 epoch：`mAP@50` 0.282→0.301，`mAP` 0.136→0.147，`box` 0.575→0.507，`cls` 0.207→0.169，`kpt` **0.093→0.079**，无 traceback/OOM/Bus error
+
+**关键点 loss 对比可作为 bug 修复的旁证**：作废 run 首轮 `kpt=0.039`，修复后首轮 `kpt=0.093`，说明关键点分支现在确实获得了有效监督。
+
+### 19.6 已发现的代码缺陷：`--epochs` 小于 6 时 `LinearLR` 必然崩溃
+
+`utils/util.py` 的 `LinearLR.__init__`：
+
+```python
+decay_steps = int(args.epochs * num_steps - warmup_steps)   # warmup_steps = max(warmup_epochs * num_steps, 1500)
+```
+
+`warmup_epochs=5`、`num_steps=403` 时 `warmup_steps = 2015`。当 `--epochs 1`，`decay_steps = 403 - 2015 = -1612`，`numpy.linspace(..., -1612)` 抛 `ValueError: Number of samples, -1612, must be non-negative`。
+
+**因此第 7.2 节「跑 1 个 epoch 探针」的写法在本仓库当前版本下不可执行**，本机改为直接启动 200 epoch 正式训练并用第 1 个 epoch 作为端到端探针。仓库后续如需支持短探针，应把 `warmup_steps` 改为 `min(warmup_steps, args.epochs * num_steps)` 或给 `warmup_epochs` 加下限保护。
+
+### 19.7 状态查询
+
+宿主机一键查询（已部署，只读）：
+
+```bash
+bash /root/scrfd-tiny-lab/tools/status.sh                    # 默认 ft320-20261015
+bash /root/scrfd-tiny-lab/tools/status.sh <run_id>           # 指定其它 run
+```
+
+输出包含：容器/进程存活、已完成 epoch 与预计剩余时间、最新 8 个 epoch 指标与最佳 mAP、GPU/RAM/Swap/磁盘、checkpoint 与其 SHA-256、致命错误扫描、日志实时尾部。
+
+分项等价命令（`$RUN` 替换为实际 run_id，当前 `ft320-20261015`）：
+
+```bash
+RUN=ft320-20261015
+# 进度与指标
+tail -8 /root/scrfd-tiny-lab/runs/$RUN/step.csv
+# 实时日志
+tail -f /root/scrfd-tiny-lab/runs/$RUN/train-console.log
+# 容器与进程
+docker ps --filter name=scrfd-tiny-train
+docker exec scrfd-tiny-train sh -lc "ps -ef | grep '[m]ain.py'"
+# 错误扫描
+grep -Ein 'traceback|segmentation fault|bus error|out of memory|cuda error|killed' \
+  /root/scrfd-tiny-lab/runs/$RUN/train-console.log
+# 结束判定（出现即为跑完或异常退出）
+grep TRAIN_EXIT_CODE /root/scrfd-tiny-lab/runs/$RUN/train-console.log
+```
+
+进入 tmux 实时观察（离开按 `Ctrl+B` 再按 `D`）：
+
+```bash
+ssh root@192.168.100.41
+tmux attach -t scrfd-tiny-ft320
+```
+
+### 19.8 待执行
+
+1. 训练跑满 200 epoch 后按第 10 节固化 `best.pt`，记录 `TRAIN_EXIT_CODE=0` 与 SHA-256。
+2. 按第 12 节做**同口径基线对比**：先用自带 `weights/best.pt` 跑一次 `--test` 到临时目录，再测微调后的 `best.pt`。
+3. **关键点精度无法用当前 val 集评估**（官方 val 只有框）。需另找带 5 点的验证集，或用官方 `train` 中有人脸的图做人工抽检，不能只看 `step.csv` 的 kpt loss 下降。
+4. 第 13–15 节 ONNX 导出与数值验收。
+5. 若 200 epoch 后 mAP 无明显提升，考虑 v2 方案：只保留框宽 ≥16 px 的人脸（约占 50%）、或调整 anchor 尺度以覆盖更小的脸。

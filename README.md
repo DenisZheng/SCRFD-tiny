@@ -4,6 +4,10 @@ Tiny version of [SCRFD](https://arxiv.org/abs/2105.04714) Face and 5 Point Landm
 
 ### Installation
 
+Current workflow: use the [Docker training manual](SCRFD-tiny-Docker%E8%AE%AD%E7%BB%83%E6%B5%81%E7%A8%8B.md) and `Dockerfile.scrfd-tiny` (PyTorch 2.5.1 / CUDA 12.4). The Conda commands below are retained as upstream history and are not the current training setup.
+
+The owner has two registered training hosts: GTX 1060 6 GB (Pascal, sm_61) and RTX 4080 16 GB. The 2026-10-21 task selects the GTX 1060; the RTX 4080 remains available. The candidate image `scrfd-tiny:torch2.5.1-cu124` was validated on the GTX 1060 on 2026-10-15 (CUDA matmul, cuDNN conv forward/backward, 228/228 weight load, 320 model forward all PASS); see section 19 of the Docker training manual for the measured record.
+
 ```
 conda create -n PyTorch python=3.11.11
 conda activate PyTorch
@@ -17,6 +21,8 @@ pip install thop
 ### Docker training
 
 A full Docker-based workflow (image build and acceptance, RetinaFace-WIDER data preparation, 320 finetuning, evaluation, fixed-shape export for ESP-PPQ) is documented in the [Docker training manual](SCRFD-tiny-Docker%E8%AE%AD%E7%BB%83%E6%B5%81%E7%A8%8B.md) (Chinese), with the image defined by [Dockerfile.scrfd-tiny](Dockerfile.scrfd-tiny).
+
+The external `scrfd-tiny-esp` adapter used for data conversion and raw-head ESP export is not included in this checkout; its source/version must be recorded before those steps can be reproduced. This face model is independent of the ESPDet-Pico hand-gesture project.
 
 ### Train
 
@@ -36,6 +42,10 @@ Upstream numbers at 640 input. This fork defaults to 320 (`--input-size`, anchor
 |--------------------|---------|-----------|---------|------------|--------------|-----------|-----------------------|
 | SCRFD0.5(ICLR2022) | 90.57   | 88.12     | 68.51   | 0.57       | 1.00x        | 508       | 5.5                   | 
 | SCRFD-tiny(ours)   | 89.23   | 87.60     | 67.15   | 0.08       | 7.12x        | 451       | 4.4                   | 
+
+Report your own numbers with the standard WIDER Face evaluator bundled in
+[`tools/widerface_evaluation/`](tools/widerface_evaluation/README.md). It produces IoU=0.5
+Easy/Medium/Hard AP, which is a different metric from `main.py --test` (IoU 0.5:0.95 averaged).
 
 ### Dataset structure
 

@@ -1,0 +1,2 @@
+# 文档使用 LF，避免本机 core.autocrlf 改回 CRLF。
+*.md text eol=lf
