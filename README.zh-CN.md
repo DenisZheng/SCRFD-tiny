@@ -18,6 +18,8 @@ pip install thop
 
 完整的 Docker 训练流程（镜像构建与验收、RetinaFace 版 WIDER 数据准备、320 微调、评估、面向 ESP-PPQ 的固定形状导出）见 [Docker 训练手册](SCRFD-tiny-Docker%E8%AE%AD%E7%BB%83%E6%B5%81%E7%A8%8B.md)，镜像定义见 [Dockerfile.scrfd-tiny](Dockerfile.scrfd-tiny)。
 
+候选镜像 `scrfd-tiny:torch2.5.1-cu124` 已于 2026-10-15 在 GTX 1060 实机验收通过（CUDA 矩阵运算、cuDNN 卷积前向/反向、228/228 权重加载、320 模型前向均 PASS）；实测记录见 Docker 训练手册第 19 节。
+
 ### 训练
 
 * 数据集根目录用 `--data-dir` 指定（默认 `../Dataset/WIDERFace`）；checkpoint 与 `step.csv` 写入 `--save-dir`（默认 `./weights`）——指向其他目录可避免覆盖仓库自带基线。用 `--weights <ckpt.pt>` 从 checkpoint 微调。注意默认参数是从头训练的配方（`--epochs 1200`、`utils/args.yaml` 中 `max_lr 0.01`）：微调时应大幅减少 epochs，并考虑调低 `max_lr`
@@ -36,6 +38,10 @@ pip install thop
 |--------------------|---------|-----------|---------|------------|--------------|-----------|-----------------------|
 | SCRFD0.5(ICLR2022) | 90.57   | 88.12     | 68.51   | 0.57       | 1.00x        | 508       | 5.5                   | 
 | SCRFD-tiny(ours)   | 89.23   | 87.60     | 67.15   | 0.08       | 7.12x        | 451       | 4.4                   | 
+
+自己的结果请用仓库内置的标准 WIDER Face 评估器报告，见
+[`tools/widerface_evaluation/`](tools/widerface_evaluation/README.md)。它产出的是 IoU=0.5 的
+Easy/Medium/Hard AP，与 `main.py --test` 的 `mAP`（IoU 0.5:0.95 平均）**不是同一指标**。
 
 ### 数据集结构
 
