@@ -32,16 +32,40 @@ pip install thop
 
 ### 结果
 
-下表是上游在 640 输入下的数字。本 fork 默认为 320（`--input-size`，anchor 尺寸自动缩放）；320 下 AP 会更低，小脸尤其明显——请与自己的 320 基线比较，不要直接和此表对比。
+#### 上游参考（640 输入）
+
+下表是上游在 640 输入下的数字。本 fork 默认为 320（`--input-size`，anchor 尺寸自动缩放）；
+320 下 AP 会更低，小脸尤其明显——**不要拿 320 的结果与下表对比**。
 
 | Model              | AP-easy | AP-medium | AP-hard | Params (M) | Params Ratio | FLOPS (M) | CPU ONNX Latency (ms) | 
 |--------------------|---------|-----------|---------|------------|--------------|-----------|-----------------------|
 | SCRFD0.5(ICLR2022) | 90.57   | 88.12     | 68.51   | 0.57       | 1.00x        | 508       | 5.5                   | 
 | SCRFD-tiny(ours)   | 89.23   | 87.60     | 67.15   | 0.08       | 7.12x        | 451       | 4.4                   | 
 
-自己的结果请用仓库内置的标准 WIDER Face 评估器报告，见
-[`tools/widerface_evaluation/`](tools/widerface_evaluation/README.md)。它产出的是 IoU=0.5 的
-Easy/Medium/Hard AP，与 `main.py --test` 的 `mAP`（IoU 0.5:0.95 平均）**不是同一指标**。
+#### 本 fork 实测（320 输入）
+
+WIDER Face val，IoU=0.5，标准评估器（`tools/widerface_evaluation/`）。
+两行同为 320 输入、同一 val 集，可直接对比。
+
+| 模型 | 初始化 | Epochs | AP-easy | AP-medium | AP-hard | 权重 |
+|---|---|---|---|---|---|---|
+| SCRFD-tiny @320（基线） | 上游 640 ckpt | — | 85.30 | 75.17 | 36.20 | `weights/best.pt` |
+| **SCRFD-tiny @320（微调后）** | `weights/best.pt` | 200 | **86.36** | **78.90** | **41.77** | [`weights/ft320-20261015/best.pt`](weights/ft320-20261015/best.pt) |
+| 变化 | | | +1.06 | +3.73 | +5.56 | |
+
+微调条件：GTX 1060 6GB，200 epoch，batch 32，`max_lr` 0.001，320 输入，约 10.7 小时。
+提升集中在 Medium/Hard，符合 320 输入下小脸为主要瓶颈的预期。
+完整报告：[`docs/evaluation/320微调与WIDER标准评估-20261016.md`](docs/evaluation/320微调与WIDER标准评估-20261016.md)。
+
+> 两个不同指标：上表是 **IoU=0.5 单点 AP**（分 Easy/Medium/Hard）；
+> `step.csv` 里记录的是 **IoU 0.5:0.95 平均值 mAP**，同一 checkpoint 约 0.167。
+> 两者不可互换。关键点精度**未评估**——WIDER val 只有检测框标注。
+
+### 数据集
+
+数据集不入库。下载地址、校验值与预期转换结果见
+[`docs/数据集来源与校验.md`](docs/数据集来源与校验.md)。
+需要两部分：RetinaFace 5 点标注包（`retinaface_gt_v1.1`）与 WIDER Face 图像。
 
 ### 数据集结构
 

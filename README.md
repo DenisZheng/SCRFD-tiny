@@ -36,16 +36,41 @@ The external `scrfd-tiny-esp` adapter used for data conversion and raw-head ESP 
 
 ### Results
 
-Upstream numbers at 640 input. This fork defaults to 320 (`--input-size`, anchor sizes auto-scale); expect lower AP at 320, especially on small faces - compare against your own 320 baseline, not this table.
+#### Upstream reference (640 input)
+
+Upstream numbers at 640 input. This fork defaults to 320 (`--input-size`, anchor sizes auto-scale);
+expect lower AP at 320, especially on small faces. **Do not compare 320 runs against this table.**
 
 | Model              | AP-easy | AP-medium | AP-hard | Params (M) | Params Ratio | FLOPS (M) | CPU ONNX Latency (ms) | 
 |--------------------|---------|-----------|---------|------------|--------------|-----------|-----------------------|
 | SCRFD0.5(ICLR2022) | 90.57   | 88.12     | 68.51   | 0.57       | 1.00x        | 508       | 5.5                   | 
 | SCRFD-tiny(ours)   | 89.23   | 87.60     | 67.15   | 0.08       | 7.12x        | 451       | 4.4                   | 
 
-Report your own numbers with the standard WIDER Face evaluator bundled in
-[`tools/widerface_evaluation/`](tools/widerface_evaluation/README.md). It produces IoU=0.5
-Easy/Medium/Hard AP, which is a different metric from `main.py --test` (IoU 0.5:0.95 averaged).
+#### This fork, measured (320 input)
+
+WIDER Face val, IoU=0.5, standard evaluator (`tools/widerface_evaluation/`).
+Same 320 input and same val set for both rows, so the comparison is like-for-like.
+
+| Model | Init | Epochs | AP-easy | AP-medium | AP-hard | Weights |
+|-------|------|--------|---------|-----------|---------|---------|
+| SCRFD-tiny @320 (baseline) | upstream 640 ckpt | — | 85.30 | 75.17 | 36.20 | `weights/best.pt` |
+| **SCRFD-tiny @320 (finetuned)** | `weights/best.pt` | 200 | **86.36** | **78.90** | **41.77** | [`weights/ft320-20261015/best.pt`](weights/ft320-20261015/best.pt) |
+| Δ | | | +1.06 | +3.73 | +5.56 | |
+
+Finetune: GTX 1060 6GB, 200 epochs, batch 32, `max_lr` 0.001, 320 input, ~10.7 h.
+Gains concentrate on Medium/Hard, as expected since small faces are the main bottleneck at 320.
+Full report: [`docs/evaluation/320微调与WIDER标准评估-20261016.md`](docs/evaluation/320微调与WIDER标准评估-20261016.md).
+
+> Two different metrics are in play: the table above is **IoU=0.5 single-point AP** (Easy/Medium/Hard).
+> `step.csv` logs **mAP at IoU 0.5:0.95 averaged**, which reads ~0.167 for the same checkpoint.
+> They are not interchangeable. Keypoint accuracy is **not** evaluated here - WIDER val has box labels only.
+
+### Dataset
+
+The dataset is not bundled. Download links, checksums and expected conversion
+counts are documented in [`docs/数据集来源与校验.md`](docs/数据集来源与校验.md).
+You need two parts: the RetinaFace 5-point annotation pack (`retinaface_gt_v1.1`)
+and the WIDER Face images.
 
 ### Dataset structure
 
