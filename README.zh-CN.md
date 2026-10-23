@@ -57,8 +57,30 @@ WIDER Face val，IoU=0.5，标准评估器（`tools/widerface_evaluation/`）。
 提升集中在 Medium/Hard，符合 320 输入下小脸为主要瓶颈的预期。
 完整报告：[`docs/evaluation/320微调与WIDER标准评估-20261016.md`](docs/evaluation/320微调与WIDER标准评估-20261016.md)。
 
+#### 与 ESP-DL MSR+MNP 的尺度对齐对比
+
+WIDER val 以极小脸为主（320 输入下 69% 的脸不足一个 stride-8 格子），
+所以它的 mAP 绝对值远低于业务验证集。为了与 ESP-DL 的 `MSR+MNP`
+（官方报告 **0.367 mAP50-95**，基于未公开的 custom val set）做有意义的对比，
+把 val 过滤到 MSR+MNP 实际能检测的尺度（脸宽 >= 102.4 px，由其 160 宽输入
+与 16px 最小 anchor 推导）：
+
+| 评估集 | 模型 | mAP50-95 | AP50 |
+|---|---|---|---|
+| 尺度对齐子集（957 图 / 1253 脸） | **微调 @320** | **0.666** | **0.960** |
+| 尺度对齐子集 | 基线 @320 | 0.653 | 0.954 |
+| WIDER val 全量（3226 图 / 39697 脸） | 微调 @320 | 0.165 | 0.330 |
+| ESP-DL MSR+MNP（custom val，未公开） | — | 0.367 | — |
+
+**同一个 checkpoint 在全量 val 上是 0.165，在尺度对齐子集上是 0.666——差 4.0 倍，
+完全由人脸尺寸分布导致。在部署尺度下，微调模型的精度约为 MSR+MNP 报告值的 1.8 倍。**
+
+保留意见：子集样本量小（1253 脸）、ESP-DL 的 custom val set 内容未知、
+我们是 fp32 PyTorch 而 MSR+MNP 是 int8。应作为量级参考，不是严格同集基准。
+完整分析：[`docs/evaluation/与ESP-DL-MSRMNP尺度对齐对比-20261016.md`](docs/evaluation/与ESP-DL-MSRMNP尺度对齐对比-20261016.md)。
+
 > 两个不同指标：上表是 **IoU=0.5 单点 AP**（分 Easy/Medium/Hard）；
-> `step.csv` 里记录的是 **IoU 0.5:0.95 平均值 mAP**，同一 checkpoint 约 0.167。
+> `mAP50-95` 是 COCO 式平均。`step.csv` 里记录的是后者（同一 checkpoint 约 0.167）。
 > 两者不可互换。关键点精度**未评估**——WIDER val 只有检测框标注。
 
 ### 数据集

@@ -46,7 +46,7 @@ expect lower AP at 320, especially on small faces. **Do not compare 320 runs aga
 | SCRFD0.5(ICLR2022) | 90.57   | 88.12     | 68.51   | 0.57       | 1.00x        | 508       | 5.5                   | 
 | SCRFD-tiny(ours)   | 89.23   | 87.60     | 67.15   | 0.08       | 7.12x        | 451       | 4.4                   | 
 
-#### This fork, measured (320 input)
+#### This fork, measured (320 input, WIDER val)
 
 WIDER Face val, IoU=0.5, standard evaluator (`tools/widerface_evaluation/`).
 Same 320 input and same val set for both rows, so the comparison is like-for-like.
@@ -61,9 +61,34 @@ Finetune: GTX 1060 6GB, 200 epochs, batch 32, `max_lr` 0.001, 320 input, ~10.7 h
 Gains concentrate on Medium/Hard, as expected since small faces are the main bottleneck at 320.
 Full report: [`docs/evaluation/320微调与WIDER标准评估-20261016.md`](docs/evaluation/320微调与WIDER标准评估-20261016.md).
 
-> Two different metrics are in play: the table above is **IoU=0.5 single-point AP** (Easy/Medium/Hard).
-> `step.csv` logs **mAP at IoU 0.5:0.95 averaged**, which reads ~0.167 for the same checkpoint.
-> They are not interchangeable. Keypoint accuracy is **not** evaluated here - WIDER val has box labels only.
+#### Comparison with ESP-DL MSR+MNP (scale-aligned)
+
+WIDER val contains mostly tiny faces (69% of them fall below one stride-8 cell at 320 input),
+so its absolute mAP is far below what a business validation set yields. To make a
+meaningful comparison against ESP-DL's `MSR+MNP` (reported **0.367 mAP50-95** on an
+undisclosed custom val set), the val set is filtered to faces MSR+MNP can actually detect
+(≥102.4 px wide, derived from its 160-wide input and 16 px minimum anchor):
+
+| Evaluation set | Model | mAP50-95 | AP50 |
+|---|---|---|---|
+| Scale-aligned subset (957 img / 1253 faces) | **finetuned @320** | **0.666** | **0.960** |
+| Scale-aligned subset | baseline @320 | 0.653 | 0.954 |
+| Full WIDER val (3226 img / 39697 faces) | finetuned @320 | 0.165 | 0.330 |
+| ESP-DL MSR+MNP (custom val, undisclosed) | — | 0.367 | — |
+
+The same checkpoint scores 0.165 on full WIDER val and 0.666 on the scale-aligned subset —
+a 4.0x difference caused purely by face-size distribution. **At deployment scale the
+finetuned model is roughly 1.8x the reported MSR+MNP number.**
+
+Caveats: the subset is small (1253 faces), ESP-DL's custom val set is unknown, and our
+number is fp32 PyTorch while MSR+MNP is int8. Treat this as an order-of-magnitude
+sanity check, not a strict same-set benchmark. Full analysis:
+[`docs/evaluation/与ESP-DL-MSRMNP尺度对齐对比-20261016.md`](docs/evaluation/与ESP-DL-MSRMNP尺度对齐对比-20261016.md).
+
+> Two different metrics are in play: the tables above are **IoU=0.5 single-point AP** for
+> Easy/Medium/Hard, while `mAP50-95` is the COCO-style average. `step.csv` logs the latter
+> (~0.167 for the same checkpoint). They are not interchangeable. Keypoint accuracy is
+> **not** evaluated here - WIDER val has box labels only.
 
 ### Dataset
 
