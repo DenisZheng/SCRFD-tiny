@@ -1,0 +1,41 @@
+{
+  "run_id": "ft320-20261015",
+  "evaluated_at": "2026-10-16",
+  "checkpoint": {
+    "best_pt_sha256": "11a1e9aaf12e4aa03ae296ff932e9fdaa639999f7af46020d60d59da8f346903",
+    "last_pt_sha256": "f25f77ffca19d9193d2fc1bd4bea10980bfb32a37ed6682dcb6a796408ca207c"
+  },
+  "baseline": {
+    "ckpt_sha256": "8049d2b00c1ec7dc19cf56ae4b08bae704a0e95ff3343132ac776d7100c9fdc5",
+    "note": "仓库自带 weights/best.pt 基线",
+    "AP_easy": 0.8529845107160426,
+    "AP_medium": 0.7516872567248423,
+    "AP_hard": 0.362046653044662
+  },
+  "finetuned": {
+    "AP_easy": 0.8635673797950182,
+    "AP_medium": 0.788978723450781,
+    "AP_hard": 0.4176574500422882
+  },
+  "delta": {
+    "AP_easy": 0.010582869078975543,
+    "AP_medium": 0.03729146672593875,
+    "AP_hard": 0.05561079699762622
+  },
+  "protocol": {
+    "input_size": 320,
+    "iou_threshold": 0.5,
+    "evaluator": "wondervictor/WiderFace-Evaluation (vendored in tools/widerface_evaluation)",
+    "val_images": 3226,
+    "val_faces": 39697,
+    "conf_threshold_for_export": 0.02
+  },
+  "training": {
+    "epochs": 200,
+    "best_epoch_by_mAP": 156,
+    "best_mAP": 0.167,
+    "best_mAP50": 0.333,
+    "final_mAP": 0.167,
+    "final_mAP50": 0.334
+  }
+}
